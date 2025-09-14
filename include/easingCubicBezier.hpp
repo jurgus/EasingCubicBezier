@@ -1,158 +1,268 @@
 #include <cmath>
+#include <cstdint>
 #include <array>
 #include <complex>
 #include <algorithm>
 #include <numbers>
 
+#if defined(_MSC_VER)
+#define FORCE_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define FORCE_INLINE inline __attribute__((always_inline))
+#else
+#define FORCE_INLINE inline
+#endif
+
+#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+#include <utility>
+#define UNREACHABLE() std::unreachable()
+#else
+#if defined(_MSC_VER) && !defined(__clang__) // MSVC
+#define UNREACHABLE() __assume(false)
+#else // GCC, Clang, others
+#define UNREACHABLE() __builtin_unreachable()
+#endif
+#endif
+
+template<typename T>
+inline bool isZero(T x, T epsilon = std::numeric_limits<T>::epsilon()) noexcept
+{
+    return std::fabs(x) < epsilon;
+}
+
 template<typename T>
 class EasingCubicBezier
 {
-	enum class TYPE : uint8_t
-	{
-		NONE   = 0x0,
-		P3     = 0x1,
-		X2     = 0x2,
-		X3P0   = 0x3,
-		X3COS  = 0x4,
-		X3SINH = 0x5,
-		X3COSH = 0x6
-	};
+public:
+    enum TYPE : uint32_t
+    {
+        NONE   = 0x0,
+        P3     = 0x1,
+        X2     = 0x2,
+        X3P0   = 0x3,
+        X3COS  = 0x4,
+        X3SINH = 0x5,
+        X3COSH = 0x6
+    };
 
-	TYPE mType;
-	T a;
-	T b;
-	T c;
-	T d;
-	T l;
-	T k;
+private:
+public:
+    TYPE mType;
+    T mA;
+    T mB;
+    T mC;
+    T mD;
+    T mL;
+    T mK;
 
 public:
-	EasingCubicBezier() = default;
+    static T DEFAULT_EPSILON;
 
-	EasingCubicBezier(const std::array<T, 4>& P_X, const std::array<T, 4>& P_Y) noexcept
-	{
-		makeEasing(P_X, P_Y);
-	}
+    EasingCubicBezier() noexcept = default;
 
-	T evaluate(T x) const noexcept;
+    EasingCubicBezier(TYPE type, T a, T b, T c, T d, T l, T k) noexcept
+        : mType(type)
+        , mA(a)
+        , mB(b)
+        , mC(c)
+        , mD(d)
+        , mL(l)
+        , mK(k)
+    {
+    }
 
-	void makeEasing(const std::array<T, 4>& P_X, const std::array<T, 4>& P_Y) noexcept
-	{
-		const T x0 = P_X[0];
-		const T x3 = P_X[3];
-		const std::array<T, 4> m0 = { T(-1), T(3), T(-3), T(1) };
-		const std::array<T, 4> m1 = { T(3) * x3, T(-3) * (x0 + T(2) * x3), T(3) * (T(2) * x0 + x3), T(-3) * x0 };
-		const std::array<T, 4> m2 = { T(-3) * x3 * x3, T(3) * x3 * (T(2) * x0 + x3), T(-3) * x0 * (x0 + T(2) * x3), T(3) * x0 * x0 };
-		const std::array<T, 4> m3 = { x3 * x3 * x3, T(-3) * x0 * x3 * x3, T(3) * x0 * x0 * x3, -x0 * x0 * x0 };
-		const T xRange = T(1) / ((x3 - x0) * (x3 - x0) * (x3 - x0));
-		const std::array<T, 4> pX =
-		{
-			(m0[0] * P_X[0] + m0[1] * P_X[1] + m0[2] * P_X[2] + m0[3] * P_X[3]) * xRange,
-			(m1[0] * P_X[0] + m1[1] * P_X[1] + m1[2] * P_X[2] + m1[3] * P_X[3]) * xRange,
-			(m2[0] * P_X[0] + m2[1] * P_X[1] + m2[2] * P_X[2] + m2[3] * P_X[3]) * xRange,
-			(m3[0] * P_X[0] + m3[1] * P_X[1] + m3[2] * P_X[2] + m3[3] * P_X[3]) * xRange
-		};
-		const std::array<T, 4> pY =
-		{
-			(m0[0] * P_Y[0] + m0[1] * P_Y[1] + m0[2] * P_Y[2] + m0[3] * P_Y[3]) * xRange,
-			(m1[0] * P_Y[0] + m1[1] * P_Y[1] + m1[2] * P_Y[2] + m1[3] * P_Y[3]) * xRange,
-			(m2[0] * P_Y[0] + m2[1] * P_Y[1] + m2[2] * P_Y[2] + m2[3] * P_Y[3]) * xRange,
-			(m3[0] * P_Y[0] + m3[1] * P_Y[1] + m3[2] * P_Y[2] + m3[3] * P_Y[3]) * xRange
-		};
-		const T b_a = pX[1] / pX[0];
-		const T c_a = pX[2] / pX[0];
-		const T d_a = pX[3] / pX[0];
-		const T p = c_a - b_a * b_a / T(3);;
-		const T q = T(2) / T(27) * b_a * b_a * b_a - b_a * c_a + d_a / T(3);
-		if (pX[0] == T(0) && pX[1] == T(0))
-			mType = TYPE::P3;
-		else if (pX[0] == T(0))
-			mType = TYPE::X2;
-		else if (p == T(0))
-			mType = TYPE::X3P0;
-		else if (pX[0] < T(0))
-			mType = TYPE::X3COS;
-		else if (p > T(0))
-			mType = TYPE::X3SINH;
-		else if (p < T(0))
-			mType = TYPE::X3COSH;
-		else
-			mType = TYPE::NONE;
-		T A = 0, B = 0;
-		switch (mType)
-		{
-		case TYPE::P3:
-			A = T(1) / pX[2];
-			B = -pX[3] / pX[2];
-			k = T(0);
-			l = T(1);
-			break;
-		case TYPE::X2:
-			A = std::copysign(T(1), pX[1]);
-			B = -pX[2] / (T(2) * pX[1]);
-			k = pX[2] * pX[2] / (T(4) * pX[1] * pX[1]) - pX[3] / pX[1];
-			l = T(1) / pX[1];
-			break;
-		case TYPE::X3P0:
-			A = T(1);
-			B = -pX[1] / (T(3) * pX[0]);
-			k = -q;
-			l = T(1) / pX[0];
-			break;
-		case TYPE::X3COS:
-			A = T(2) * std::sqrt(-p / T(3));
-			B = -pX[1] / (T(3) * pX[0]);
-			k = T(3) * q / (A * p);
-			l = T(-3) / (A * p * pX[0]);
-			break;
-		case TYPE::X3SINH:
-			A = T(-2) * std::sqrt(p / T(3));
-			B = -pX[1] / (T(3) * pX[0]);
-			k = T(-3) * q / (A * p);
-			l = T(3) / (A * p * pX[0]);
-			break;
-		case TYPE::X3COSH:
-			A = T(-2) * std::sqrt(-p / T(3)) * std::copysign(T(1), -pX[1]);
-			B = -pX[1] / (T(3) * pX[0]);
-			k = T(3) * q / (A * p);
-			l = T(-3) / (A * p * pX[0]);
-			break;
-		default:
-			break;
-		}
-		a = pY[0] * A * A * A;
-		b = T(3) * pY[0] * B * A * A + pY[1] * A * A;
-		c = T(3) * pY[0] * B * B * A + T(2) * pY[1] * B * A + pY[2] * A;
-		d = pY[0] * B * B * B + pY[1] * B * B + pY[2] * B + pY[3];
-	}
+    EasingCubicBezier(const std::array<T, 4>& P_X, const std::array<T, 4>& P_Y) noexcept
+    {
+        makeEasingFromBezier(P_X, P_Y);
+    }
+
+    EasingCubicBezier(T x0, T y0, T x1, T y1, T x2, T y2, T x3, T y3) noexcept
+    {
+        makeEasingFromBezier({x0, x1, x2, x3}, {y0, y1, y2, y3});
+    }
+    
+    T innerFunc(T x) const noexcept
+    {
+        return std::fma(mL, x, mK);
+    }
+
+    T evaluate(T x) const noexcept
+    {
+        constexpr T one_third = T(1) / T(3);
+        constexpr T two_third_pi = -T(2) / T(3) * std::numbers::pi_v<T>;
+#if defined(_MSC_VER) && defined(__AVX2__)
+        T phi = std::fma(mL, x, mK);
+#else
+        T phi = mL * x + mK;
+#endif
+        switch (mType)
+        {
+        case TYPE::P3:
+            break;
+        case TYPE::X2:
+            phi = std::sqrt(std::max(T(0), phi));
+            break;
+        case TYPE::X3P0:
+            phi = std::cbrt(phi);
+            break;
+        case TYPE::X3COS:
+#ifdef FP_PRECISE
+            phi = std::cos(std::acos(std::clamp(phi, T(-1), T(1))) / T(3) + two_third_pi);
+#else
+#if defined(_MSC_VER) && defined(__AVX2__)
+            phi = std::cos(std::fma(std::acos(std::clamp(phi, T(-1), T(1))), one_third, two_third_pi));
+#else
+            phi = std::cos(std::acos(std::clamp(phi, T(-1), T(1))) * one_third + two_third_pi);
+#endif
+#endif
+            break;
+        case TYPE::X3COSH:
+#ifdef FP_PRECISE
+            phi = phi >= T(1) ? std::cosh(std::acosh(phi) / T(3))
+                : std::cos(std::acos(phi) / T(3));
+#else
+            phi = phi >= T(1) ? std::cosh(std::acosh(phi) * one_third)
+                : std::cos(std::acos(phi) * one_third);
+#endif
+            break;
+        case TYPE::X3SINH:
+#ifdef FP_PRECISE
+            phi = std::sinh(std::asinh(phi) / T(3));
+#else
+            phi = std::sinh(std::asinh(phi) * one_third);
+#endif
+            break;
+        default:
+            UNREACHABLE();
+            break;
+        }
+#if defined(_MSC_VER) && defined(__AVX2__)
+        return std::fma(std::fma(std::fma(mA, phi, mB), phi, mC), phi, mD);
+#else
+        return ((mA * phi + mB) * phi + mC) * phi + mD;
+#endif
+    }
+
+    void makeEasingFromBezier(const std::array<T, 4>& P_X, const std::array<T, 4>& P_Y, T epsilon = DEFAULT_EPSILON) noexcept
+    {
+        std::array<T, 4> polyX = calculatePolynomial(P_X, P_X[0], P_X[3]);
+        std::array<T, 4> polyY = calculatePolynomial(P_Y, P_X[0], P_X[3]);
+        makeEasingFromPolynomial(polyX, polyY, epsilon);
+    }
+
+    void makeEasingFromPolynomial(const std::array<T, 4>& polyX, const std::array<T, 4>& polyY, T epsilon = DEFAULT_EPSILON) noexcept
+    {
+        const T b_a = polyX[1] / polyX[0];
+        const T c_a = polyX[2] / polyX[0];
+        const T d_a = polyX[3] / polyX[0];
+        const T p = std::fma(b_a / T(-3), b_a, c_a);
+        const T b_a2 = polyX[1] / (T(3) * polyX[0]);
+        const T q = std::fma(std::fma(T(2) * b_a2, b_a2, -c_a), b_a2, d_a);
+        const T signP = std::copysign(T(1), p);
+        mType = calculateType(polyX, epsilon);
+        T A = T(1), B;
+        switch (mType)
+        {
+        case TYPE::P3:
+            A /= polyX[2];
+            B = -(polyX[3] / polyX[2]);
+            mK = T(0);
+            mL = T(1);
+            break;
+        case TYPE::X2:
+            A = std::copysign(A, polyX[1]);
+            B = (polyX[2] / polyX[1]) / T(-2);
+            mK = std::fma(B, B, -polyX[3] / polyX[1]);
+            mL = T(1) / polyX[1];
+            break;
+        case TYPE::X3P0:
+            B = -b_a2;
+            mK = -q;
+            mL = T(1) / polyX[0];
+            break;
+        case TYPE::X3COSH:
+            A = -std::copysign(A, polyX[1]);
+            [[fallthrough]];
+        case TYPE::X3COS:
+            [[fallthrough]];
+        case TYPE::X3SINH:
+            A *= T(-2) * signP * std::sqrt(std::fabs(p) / T(3));
+            B = -b_a2;
+            mK = (T(3) * signP) * (-q / p / A);
+            mL = (T(3) * signP) / (p * polyX[0] * A);
+            break;
+        default:
+            UNREACHABLE();
+            break;
+        }
+        mA = polyY[0] * A * A * A;
+        mB = std::fma(T(3) * polyY[0], B, polyY[1]) * A * A;
+        mC = std::fma(std::fma(T(3) * polyY[0], B, T(2) * polyY[1]), B, polyY[2]) * A;
+        mD = std::fma(std::fma(std::fma(polyY[0], B, polyY[1]), B, polyY[2]), B, polyY[3]);
+    }
+
+    static TYPE calculateType(const std::array<T, 4>& polyX, T epsilon = DEFAULT_EPSILON) noexcept
+    {
+        const T b_a = polyX[1] / polyX[0];
+        const T c_a = polyX[2] / polyX[0];
+        const T d_a = polyX[3] / polyX[0];
+        const T p = c_a - b_a * b_a / T(3);
+        const T b_a2 = polyX[1] / polyX[0] / T(3.0);
+        const T q = (T(2.0) * b_a2 * b_a2 - c_a) * b_a2 + d_a;
+        TYPE type = TYPE::NONE;
+        if (isZero(polyX[0], epsilon) && isZero(polyX[1], epsilon))
+            type = TYPE::P3;
+        else if (isZero(polyX[0], epsilon))
+            type = TYPE::X2;
+        else if (isZero(p, epsilon))
+            type = TYPE::X3P0;
+        else if (polyX[0] < T(0))
+            type = TYPE::X3COS;
+        else if (p > T(0))
+            type = TYPE::X3SINH;
+        else if (p < T(0))
+            type = TYPE::X3COSH;
+        else
+            type = TYPE::NONE;
+        return type;
+    }
+
+    static std::array<T, 4> calculatePolynomial(const std::array<T, 4>& P, T x0, T x3) noexcept
+    {
+        const std::array<T, 4> m0 = { T(-1), T(3), T(-3), T(1) };
+        const std::array<T, 4> m1 = { T(3) * x3, T(-3) * std::fma(T(2), x3, x0), T(3) * std::fma(T(2), x0, x3), T(-3) * x0 };
+        const std::array<T, 4> m2 = { T(-3) * x3 * x3, T(3) * x3 * std::fma(T(2), x0, x3), T(-3) * x0 * std::fma(T(2), x3, x0), T(3) * x0 * x0 };
+        const std::array<T, 4> m3 = { x3 * x3 * x3, T(-3) * x0 * x3 * x3, T(3) * x0 * x0 * x3, -x0 * x0 * x0 };
+        const T xRange = T(1) / ((x3 - x0) * (x3 - x0) * (x3 - x0));
+        const std::array<T, 4> poly =
+        {
+            (m0[0] * P[0] + m0[1] * P[1] + m0[2] * P[2] + m0[3] * P[3]) * xRange,
+            (m1[0] * P[0] + m1[1] * P[1] + m1[2] * P[2] + m1[3] * P[3]) * xRange,
+            (m2[0] * P[0] + m2[1] * P[1] + m2[2] * P[2] + m2[3] * P[3]) * xRange,
+            (m3[0] * P[0] + m3[1] * P[1] + m3[2] * P[2] + m3[3] * P[3]) * xRange
+        };
+        return poly;
+    }
+
+    static std::array<T, 4> calculatePolynomial01(const std::array<T, 4>& P) noexcept
+    {
+        const std::array<T, 4> m0 = { T(-1), T(3), T(-3), T(1) };
+        const std::array<T, 4> m1 = { T(3), T(-6), T(3), T(0) };
+        const std::array<T, 4> m2 = { T(-3), T(3), T(0), T(0) };
+        const std::array<T, 4> m3 = { T(1), T(0), T(0), T(0) };
+        const std::array<T, 4> poly =
+        {
+            (m0[0] * P[0] + m0[1] * P[1] + m0[2] * P[2] + m0[3] * P[3]),
+            (m1[0] * P[0] + m1[1] * P[1] + m1[2] * P[2] + m1[3] * P[3]),
+            (m2[0] * P[0] + m2[1] * P[1] + m2[2] * P[2] + m2[3] * P[3]),
+            (m3[0] * P[0] + m3[1] * P[1] + m3[2] * P[2] + m3[3] * P[3])
+        };
+        return poly;
+    }
 };
 
 template<typename T>
-T EasingCubicBezier<T>::evaluate(T x) const noexcept
-{
-	T phi = l * x + k;
-	switch (mType)
-	{
-	case TYPE::X2:
-		phi = std::sqrt(phi < T(0) ? T(0) : phi);
-		break;
-	case TYPE::X3P0:
-		phi = std::cbrt(phi);
-		break;
-	case TYPE::X3COS:
-		phi = std::cos(std::acos(std::clamp(phi, T(-1), T(1))) / T(3) - T(2) / T(3) * std::numbers::pi_v<float>);
-		break;
-	case TYPE::X3COSH:
-		phi = std::cosh(std::acosh(std::complex<T>(phi)) / T(3)).real();
-		break;
-	case TYPE::X3SINH:
-		phi = std::sinh(std::asinh(phi) / T(3));
-		break;
-	default:
-		break;
-	}
-	return ((a * phi + b) * phi + c) * phi + d;
-}
+T EasingCubicBezier<T>::DEFAULT_EPSILON = std::numeric_limits<T>::epsilon() * T(10);
 
 using EasingCubicBezierf = EasingCubicBezier<float>;
 using EasingCubicBezierd = EasingCubicBezier<double>;
