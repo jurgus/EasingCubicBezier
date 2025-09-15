@@ -1,9 +1,10 @@
+#pragma once
+
 #include <cmath>
-#include <cstdint>
 #include <array>
-#include <complex>
 #include <algorithm>
 #include <numbers>
+#include <limits>
 
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
@@ -31,10 +32,37 @@ inline bool isZero(T x, T epsilon = std::numeric_limits<T>::epsilon()) noexcept
 }
 
 template<typename T>
+inline T fast_cbrt(T x) noexcept
+{
+    constexpr T one_third = T(1) / T(3);
+    return x == T(0) ? T(0) : std::copysign(T(1), x) * std::exp(std::log(std::fabs(x)) * one_third);
+}
+
+template<typename T>
+inline T fast_asinh(T x) noexcept
+{
+#if defined(_MSC_VER) && !defined(__AVX2__)
+    return std::log(x + std::sqrt(x * x + T(1)));
+#else
+    return std::log(x + std::sqrt(std::fma(x, x, T(1))));
+#endif
+}
+
+template<typename T>
+inline T fast_acosh(T x) noexcept
+{
+#if defined(_MSC_VER) && !defined(__AVX2__)
+    return std::log(x + std::sqrt(x * x - T(1)));
+#else
+    return std::log(x + std::sqrt(std::fma(x, x, -T(1))));
+#endif
+}
+
+template<typename T>
 class EasingCubicBezier
 {
 public:
-    enum TYPE : uint32_t
+    enum TYPE
     {
         NONE   = 0x0,
         P3     = 0x1,
@@ -90,10 +118,10 @@ public:
     {
         constexpr T one_third = T(1) / T(3);
         constexpr T two_third_pi = -T(2) / T(3) * std::numbers::pi_v<T>;
-#if defined(_MSC_VER) && defined(__AVX2__)
-        T phi = std::fma(mL, x, mK);
-#else
+#if defined(_MSC_VER) && !defined(__AVX2__)
         T phi = mL * x + mK;
+#else
+        T phi = std::fma(mL, x, mK);
 #endif
         switch (mType)
         {
@@ -103,43 +131,47 @@ public:
             phi = std::sqrt(std::max(T(0), phi));
             break;
         case TYPE::X3P0:
+#ifdef FP_PRECISE
             phi = std::cbrt(phi);
+#else
+            phi = fast_cbrt(phi);
+#endif
             break;
         case TYPE::X3COS:
 #ifdef FP_PRECISE
             phi = std::cos(std::acos(std::clamp(phi, T(-1), T(1))) / T(3) + two_third_pi);
 #else
-#if defined(_MSC_VER) && defined(__AVX2__)
-            phi = std::cos(std::fma(std::acos(std::clamp(phi, T(-1), T(1))), one_third, two_third_pi));
-#else
+#if defined(_MSC_VER) && !defined(__AVX2__)
             phi = std::cos(std::acos(std::clamp(phi, T(-1), T(1))) * one_third + two_third_pi);
-#endif
-#endif
-            break;
-        case TYPE::X3COSH:
-#ifdef FP_PRECISE
-            phi = phi >= T(1) ? std::cosh(std::acosh(phi) / T(3))
-                : std::cos(std::acos(phi) / T(3));
 #else
-            phi = phi >= T(1) ? std::cosh(std::acosh(phi) * one_third)
-                : std::cos(std::acos(phi) * one_third);
+            phi = std::cos(std::fma(std::acos(std::clamp(phi, T(-1), T(1))), one_third, two_third_pi));
+#endif
 #endif
             break;
         case TYPE::X3SINH:
 #ifdef FP_PRECISE
             phi = std::sinh(std::asinh(phi) / T(3));
 #else
-            phi = std::sinh(std::asinh(phi) * one_third);
+            phi = std::sinh(fast_asinh(phi) * one_third);
+#endif
+            break;
+        case TYPE::X3COSH:
+#ifdef FP_PRECISE
+            phi = phi >= T(1) ? std::cosh(std::acosh(phi) / T(3))
+                              : std::cos(std::acos(std::max(T(-1), phi)) / T(3));
+#else
+            phi = phi >= T(1) ? std::cosh(fast_acosh(phi) * one_third)
+                              : std::cos(std::acos(std::max(T(-1), phi)) * one_third);
 #endif
             break;
         default:
             UNREACHABLE();
             break;
         }
-#if defined(_MSC_VER) && defined(__AVX2__)
-        return std::fma(std::fma(std::fma(mA, phi, mB), phi, mC), phi, mD);
-#else
+#if defined(_MSC_VER) && !defined(__AVX2__)
         return ((mA * phi + mB) * phi + mC) * phi + mD;
+#else
+        return std::fma(std::fma(std::fma(mA, phi, mB), phi, mC), phi, mD);
 #endif
     }
 
@@ -159,37 +191,38 @@ public:
         const T b_a2 = polyX[1] / (T(3) * polyX[0]);
         const T q = std::fma(std::fma(T(2) * b_a2, b_a2, -c_a), b_a2, d_a);
         const T signP = std::copysign(T(1), p);
+        const T signB = std::copysign(T(1), polyX[1]);
         mType = calculateType(polyX, epsilon);
-        T A = T(1), B;
+        T A = T(1), B = T(1), extra = T(1);
         switch (mType)
         {
         case TYPE::P3:
-            A /= polyX[2];
+            A = T(1) / polyX[2];
             B = -(polyX[3] / polyX[2]);
-            mK = T(0);
             mL = T(1);
+            mK = T(0);
             break;
         case TYPE::X2:
-            A = std::copysign(A, polyX[1]);
-            B = (polyX[2] / polyX[1]) / T(-2);
-            mK = std::fma(B, B, -polyX[3] / polyX[1]);
+            A = signB;
+            B = -(polyX[2] / (T(2) * polyX[1]));
             mL = T(1) / polyX[1];
+            mK = std::fma(B, B, -polyX[3] / polyX[1]);
             break;
         case TYPE::X3P0:
             B = -b_a2;
-            mK = -q;
             mL = T(1) / polyX[0];
+            mK = -q;
             break;
         case TYPE::X3COSH:
-            A = -std::copysign(A, polyX[1]);
+            extra = signB;
             [[fallthrough]];
         case TYPE::X3COS:
             [[fallthrough]];
         case TYPE::X3SINH:
-            A *= T(-2) * signP * std::sqrt(std::fabs(p) / T(3));
+            A = T(-2) * signP * extra * std::sqrt(std::fabs(p) / T(3));
             B = -b_a2;
-            mK = (T(3) * signP) * (-q / p / A);
             mL = (T(3) * signP) / (p * polyX[0] * A);
+            mK = (T(3) * signP) * (-q / p / A);
             break;
         default:
             UNREACHABLE();
@@ -207,7 +240,7 @@ public:
         const T c_a = polyX[2] / polyX[0];
         const T d_a = polyX[3] / polyX[0];
         const T p = c_a - b_a * b_a / T(3);
-        const T b_a2 = polyX[1] / polyX[0] / T(3.0);
+        const T b_a2 = polyX[1] / (T(3) * polyX[0]);
         const T q = (T(2.0) * b_a2 * b_a2 - c_a) * b_a2 + d_a;
         TYPE type = TYPE::NONE;
         if (isZero(polyX[0], epsilon) && isZero(polyX[1], epsilon))
@@ -225,6 +258,12 @@ public:
         else
             type = TYPE::NONE;
         return type;
+    }
+
+    static std::array<T, 4> rebasePointsTo01(const std::array<T, 4>& P) noexcept
+    {
+        const T diff = P[3] - P[0];
+        return { T(0), (P[1] - P[0]) / diff, (P[2] - P[0]) / diff, T(1) };
     }
 
     static std::array<T, 4> calculatePolynomial(const std::array<T, 4>& P, T x0, T x3) noexcept

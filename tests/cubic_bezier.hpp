@@ -218,7 +218,7 @@ namespace BlenderOptim
             std::numeric_limits<T>::max(),
             std::numeric_limits<T>::max() 
         };
-        if (std::fabs(c3) < std::numeric_limits<T>::epsilon())
+        if (std::fabs(c3) >= std::numeric_limits<T>::epsilon())
         {
             T a = c2 / c3 / T(3);
             T b = c1 / c3;
@@ -494,10 +494,10 @@ namespace BlenderNumeric
     template<typename T>
     inline T fcurve_eval_keyframes_interpolate1(std::array<T, 4> P_X, std::array<T, 4> P_Y, T t)
     {
-        const T q0 = P_Y[0];
-        const T q1 = P_Y[1];
-        const T q2 = P_Y[2];
-        const T q3 = P_Y[3];
+        const T q0 = P_X[0];
+        const T q1 = P_X[1];
+        const T q2 = P_X[2];
+        const T q3 = P_X[3];
         const T c0 = q0 - t;
         const T c1 = T(3) * (q1 - q0);
         const T c2 = T(3) * (q0 - T(2) * q1 + q2);
@@ -512,10 +512,10 @@ namespace BlenderNumeric
     template<typename T>
     inline T fcurve_eval_keyframes_interpolate2(std::array<T, 4> P_X, std::array<T, 4> P_Y, T t)
     {
-        const T q0 = P_Y[0];
-        const T q1 = P_Y[1];
-        const T q2 = P_Y[2];
-        const T q3 = P_Y[3];
+        const T q0 = P_X[0];
+        const T q1 = P_X[1];
+        const T q2 = P_X[2];
+        const T q3 = P_X[3];
         const T c0 = q0 - t;
         const T c1 = T(3) * (q1 - q0);
         const T c2 = T(3) * (q0 - T(2) * q1 + q2);
@@ -526,10 +526,10 @@ namespace BlenderNumeric
     template<typename T>
     inline T fcurve_eval_keyframes_interpolate3(std::array<T, 4> P_X, std::array<T, 4> P_Y, T t)
     {
-        const T q0 = P_Y[0];
-        const T q1 = P_Y[1];
-        const T q2 = P_Y[2];
-        const T q3 = P_Y[3];
+        const T q0 = P_X[0];
+        const T q1 = P_X[1];
+        const T q2 = P_X[2];
+        const T q3 = P_X[3];
         const T c0 = q0 - t;
         const T c1 = T(3) * (q1 - q0);
         const T c2 = T(3) * (q0 - T(2) * q1 + q2);

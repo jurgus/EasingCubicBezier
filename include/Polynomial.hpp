@@ -2,6 +2,7 @@
 
 #include <array>
 #include <span>
+#include <cstdint>
 #include <cassert>
 
 template<typename T>

@@ -33,28 +33,21 @@ static void CustomArguments(benchmark::internal::Benchmark* b)
 template<typename T>
 T complex_cosh_acosh_div3(T phi)
 {
-    return std::cosh(std::acosh(std::complex<T>(phi)) / T(3)).real();
+    constexpr T one_third = T(1) / T(3);
+    return std::cosh(std::acosh(phi) * one_third);
 }
 
 template<typename T>
 T real_cosh_acosh_div3(T phi)
 {
-    if (phi >= T(1))
-    {
-        const T sqrt_term = std::sqrt(phi * phi - T(1));
-        return (std::cbrt(phi + sqrt_term) + std::cbrt(phi - sqrt_term)) / T(2);
-    }
-    else
-    {
-        return std::cos(std::acos(phi) / T(3));
-    }
+    constexpr T one_third = T(1) / T(3);
+    return std::cos(fast_acosh(phi) * one_third);
 }
 
 template<typename T>
 T real_cosh_acosh_div3_2(T phi)
 {
-    return phi >= T(1) ? std::cosh(std::acosh(phi) / T(3)) 
-                       : std::cos(std::acos(phi) / T(3));
+    return std::cos(fast_acosh(phi) / T(3));
 }
 
 template<typename T>
@@ -102,14 +95,17 @@ static void BM_Complex_Pos(benchmark::State& state)
         benchmark::DoNotOptimize(complex_cosh_acosh_div3(phi));
     }
 }
+
+#if 0
 //BENCHMARK(BM_CorrectnessFunction<float>)->Name("Correctness/phi float")->Apply(CustomArguments)->Iterations(1);
-BENCHMARK(BM_Optimized_Pos<float>)->Name("Optimized/phi float")->Apply(CustomArguments);
-BENCHMARK(BM_Optimized_Pos2<float>)->Name("Optimized2/phi float")->Apply(CustomArguments);
-BENCHMARK(BM_Complex_Pos<float>)->Name("Complex  /phi float")->Apply(CustomArguments);
+BENCHMARK(BM_Optimized_Pos<float>)->Name("Optimized/phi float")->Apply(CustomArguments)->Iterations(1'000'000);
+BENCHMARK(BM_Optimized_Pos2<float>)->Name("Optimized2/phi float")->Apply(CustomArguments)->Iterations(1'000'000);
+BENCHMARK(BM_Complex_Pos<float>)->Name("Complex  /phi float")->Apply(CustomArguments)->Iterations(1'000'000);
 //BENCHMARK(BM_CorrectnessFunction<double>)->Name("Correctness/phi double")->Apply(CustomArguments)->Iterations(1);
-BENCHMARK(BM_Optimized_Pos<double>)->Name("Optimized/phi double")->Apply(CustomArguments);
-BENCHMARK(BM_Optimized_Pos2<double>)->Name("Optimized2/phi double")->Apply(CustomArguments);
-BENCHMARK(BM_Complex_Pos<double>)->Name("Complex  /phi double")->Apply(CustomArguments);
+BENCHMARK(BM_Optimized_Pos<double>)->Name("Optimized/phi double")->Apply(CustomArguments)->Iterations(1'000'000);
+BENCHMARK(BM_Optimized_Pos2<double>)->Name("Optimized2/phi double")->Apply(CustomArguments)->Iterations(1'000'000);
+BENCHMARK(BM_Complex_Pos<double>)->Name("Complex  /phi double")->Apply(CustomArguments)->Iterations(1'000'000);
+#endif
 
 static std::array<float, 4> P_Y = { 0.0f, 0.5f, 0.5f, 1.0f };
 static std::array<float, 4> P_X0 = { 0.0f, 2.0f / 6.0f, 4.0f / 6.0f, 1.0f };
@@ -117,7 +113,8 @@ static std::array<float, 4> P_X1 = { 0.0f, 1.0f / 6.0f, 3.0f / 6.0f, 1.0f };
 static std::array<float, 4> P_X2 = { 0.0f, 0.0f / 6.0f, 0.0f / 6.0f, 1.0f };
 static std::array<float, 4> P_X3 = { 0.0f, 1.0f / 6.0f, 5.0f / 6.0f, 1.0f };
 static std::array<float, 4> P_X4 = { 0.0f, 3.0f / 6.0f, 4.0f / 6.0f, 1.0f };
-static std::array<float, 4> P_X5 = { 0.0f, 0.0f / 6.0f, 1.0f / 6.0f, 1.0f };
+static std::array<float, 4> P_X5 = { 0.0f, 5.0f / 6.0f, 6.0f / 6.0f, 1.0f };
+static std::array<float, 4> P_X6 = { 0.0f, 0.0f / 6.0f, 1.0f / 6.0f, 1.0f };
 
 static EasingCubicBezierf ecb_f_arr[] =
 {
@@ -127,6 +124,7 @@ static EasingCubicBezierf ecb_f_arr[] =
     EasingCubicBezierf(P_X3, P_Y),
     EasingCubicBezierf(P_X4, P_Y),
     EasingCubicBezierf(P_X5, P_Y),
+    EasingCubicBezierf(P_X6, P_Y),
 };
 static std::array<float, 4> P_X_arr[] =
 {
@@ -136,19 +134,62 @@ static std::array<float, 4> P_X_arr[] =
     P_X3,
     P_X4,
     P_X5,
+    P_X6,
 };
+constexpr int kSteps = 1001;
 
-constexpr int kSteps = 101;
+template<typename T>
+static void BM_Easing_Bezier_Cubic_Correctness(benchmark::State& state)
+{
+    int64_t n = state.range(0);
+    for (auto _ : state)
+    {
+        T max1 = T(0);
+        T max2 = T(0);
+        T max3 = T(0);
+        std::ostringstream vals;
+        //vals << std::scientific << std::setprecision(std::numeric_limits<T>::digits10);
+        for (int i = 0; i < kSteps; ++i)
+        {
+            T t = i / T(kSteps - 1);
+            T x0 = ecb_f_arr[n].evaluate(t);
+            T x1 = BlenderOrg::fcurve_eval_keyframes_interpolate(P_X_arr[n], P_Y, t);
+            T x2 = BlenderOptim::fcurve_eval_keyframes_interpolate(P_X_arr[n], P_Y, t);
+            T x3 = BlenderNumeric::fcurve_eval_keyframes_interpolate1(P_X_arr[n], P_Y, t);
+            // vals << t << ';' << x0 << ';' << x1 << ';' << x2 << ';' << x3 << '\n';
+            if (std::abs(x0 - x1) > std::numeric_limits<T>::epsilon())
+            {
+                max1 = std::max(max1, std::abs(x0 - x1));
+            }
+            if (std::abs(x0 - x2) > std::numeric_limits<T>::epsilon())
+            {
+                max2 = std::max(max1, std::abs(x0 - x2));
+            }
+            if (std::abs(x0 - x3) > std::numeric_limits<T>::epsilon())
+            {
+                max3 = std::max(max1, std::abs(x0 - x3));
+            }
+        }
+        std::cout << vals.str() << std::endl;
+        std::cout << std::scientific << std::setprecision(std::numeric_limits<T>::digits10) 
+            << "max1 " << max1 << '\n'
+            << "max2 " << max2 << '\n'
+            << "max3 " << max3 << '\n';
+        benchmark::ClobberMemory();
+    }
+}
+
 template<typename T>
 static void BM_Easing_Bezier_Cubic(benchmark::State& state)
 {
     int64_t n = state.range(0);
+    const auto& data = ecb_f_arr[n];
     for (auto _ : state)
     {
         for (int i = 0; i < kSteps; ++i)
         {
             float t = i / float(kSteps - 1);
-            benchmark::DoNotOptimize(ecb_f_arr[n].evaluate(t));
+            benchmark::DoNotOptimize(data.evaluate(t));
         }
         benchmark::ClobberMemory();
     }
@@ -158,12 +199,13 @@ template<typename T>
 static void BM_Easing_Bezier_Blender(benchmark::State& state)
 {
     int64_t n = state.range(0);
+    const auto& data = P_X_arr[n];
     for (auto _ : state)
     {
         for (int i = 0; i < kSteps; ++i)
         {
             float t = i / float(kSteps - 1);
-            benchmark::DoNotOptimize(BlenderOrg::fcurve_eval_keyframes_interpolate(P_X_arr[n], P_Y, t));
+            benchmark::DoNotOptimize(BlenderOrg::fcurve_eval_keyframes_interpolate(data, P_Y, t));
         }
         benchmark::ClobberMemory();
     }
@@ -173,12 +215,13 @@ template<typename T>
 static void BM_Easing_Bezier_Blender_Optim(benchmark::State& state)
 {
     int64_t n = state.range(0);
+    const auto& data = P_X_arr[n];
     for (auto _ : state)
     {
         for (int i = 0; i < kSteps; ++i)
         {
             float t = i / float(kSteps - 1);
-            benchmark::DoNotOptimize(BlenderOptim::fcurve_eval_keyframes_interpolate(P_X_arr[n], P_Y, t));
+            benchmark::DoNotOptimize(BlenderOptim::fcurve_eval_keyframes_interpolate(data, P_Y, t));
         }
         benchmark::ClobberMemory();
     }
@@ -188,43 +231,55 @@ template<typename T>
 static void BM_Easing_Bezier_Blender_Numeric1(benchmark::State& state)
 {
     int64_t n = state.range(0);
+    const auto& data = P_X_arr[n];
     for (auto _ : state)
     {
         for (int i = 0; i < kSteps; ++i)
         {
             float t = i / float(kSteps - 1);
-            benchmark::DoNotOptimize(BlenderNumeric::fcurve_eval_keyframes_interpolate1(P_X_arr[n], P_Y, t));
+            benchmark::DoNotOptimize(BlenderNumeric::fcurve_eval_keyframes_interpolate1(data, P_Y, t));
         }
         benchmark::ClobberMemory();
     }
     //state.SetItemsProcessed(state.iterations() * kSteps);
 }
 
-/*
+#if 1
+
+// #define REP ->Repetitions(5)->ReportAggregatesOnly(true)
+#define REP
+
+constexpr int Iterations = 1'00'000;
+
+BENCHMARK(BM_Easing_Bezier_Cubic_Correctness<float>)
+->Name("Correctness/phi float")
+->Iterations(1)
+->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)->Arg(6);
+
 BENCHMARK(BM_Easing_Bezier_Cubic<float>)
 ->Name("EasingCubicBezierf ")
-->Iterations(1'000'000)
-//->Repetitions(5)->ReportAggregatesOnly(true)
-->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)
+->Iterations(Iterations)
+REP
+->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)->Arg(6)
 ;
 BENCHMARK(BM_Easing_Bezier_Blender<float>)
 ->Name("Blender ")
-->Iterations(1'000'000)
-//->Repetitions(5)->ReportAggregatesOnly(true)
-->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)
+->Iterations(Iterations)
+REP
+->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)->Arg(6)
 ;
 BENCHMARK(BM_Easing_Bezier_Blender_Optim<float>)
 ->Name("BlenderOptim ")
-->Iterations(1'000'000)
-//->Repetitions(5)->ReportAggregatesOnly(true)
-->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)
+->Iterations(Iterations)
+REP
+->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)->Arg(6)
 ;
 BENCHMARK(BM_Easing_Bezier_Blender_Numeric1<float>)
 ->Name("BlenderNumeric ")
-->Iterations(1'000'000)
-//->Repetitions(5)->ReportAggregatesOnly(true)
-->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)
+->Iterations(Iterations)
+REP
+->Arg(0)->Arg(1)->Arg(2)->Arg(3)->Arg(4)->Arg(5)->Arg(6)
 ;
-*/
+#endif
 //UseManualTime()
 BENCHMARK_MAIN();
