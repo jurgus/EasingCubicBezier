@@ -5,6 +5,13 @@
 #include <cmath>
 #include <cfloat>
 
+template<typename T>
+inline std::array<T, 4> rebasePointsTo01(const std::array<T, 4>& P) noexcept
+{
+    const T diff = P[3] - P[0];
+    return { T(0), (P[1] - P[0]) / diff, (P[2] - P[0]) / diff, T(1) };
+}
+
 namespace BlenderOrg
 {
     inline double sqrt3d(double d)
@@ -170,21 +177,22 @@ namespace BlenderOrg
             v3[1] = (v4[1] - fac * h2[1]);
         }
     }
-
-    inline float fcurve_eval_keyframes_interpolate(std::array<float, 4> P_X, std::array<float, 4> P_Y, float evaltime)
+    template<typename T>
+    inline T fcurve_eval_keyframes_interpolate(std::array<T, 4> P_X, std::array<T, 4> P_Y, T evaltime)
     {
+        auto PX_01 = rebasePointsTo01(P_X);
         /* Bezier interpolation. */
         /* (v1, v2) are the first keyframe and its 2nd handle. */
         float v1[2], v2[2], v3[2], v4[2], opl[32];
-        v1[0] = P_X[0];
-        v1[1] = P_Y[0];
-        v2[0] = P_X[1];
-        v2[1] = P_Y[1];
+        v1[0] = (float)PX_01[0];
+        v1[1] = (float)P_Y[0];
+        v2[0] = (float)PX_01[1];
+        v2[1] = (float)P_Y[1];
         /* (v3, v4) are the last keyframe's 1st handle + the last keyframe. */
-        v3[0] = P_X[2];
-        v3[1] = P_Y[2];
-        v4[0] = P_X[3];
-        v4[1] = P_Y[3];
+        v3[0] = (float)PX_01[2];
+        v3[1] = (float)P_Y[2];
+        v4[0] = (float)PX_01[3];
+        v4[1] = (float)P_Y[3];
 
         if (fabsf(v1[1] - v4[1]) < FLT_EPSILON && fabsf(v2[1] - v3[1]) < FLT_EPSILON &&
             fabsf(v3[1] - v4[1]) < FLT_EPSILON) {
@@ -196,7 +204,7 @@ namespace BlenderOrg
         /* Adjust handles so that they don't overlap (forming a loop). */
         BKE_fcurve_correct_bezpart(v1, v2, v3, v4);
         /* Try to get a value for this position - if failure, try another set of points. */
-        if (!findzero(evaltime, v1[0], v2[0], v3[0], v4[0], opl))
+        if (!findzero((float)evaltime, v1[0], v2[0], v3[0], v4[0], opl))
         {
             return 0.0f;
         }
@@ -208,7 +216,13 @@ namespace BlenderOrg
 namespace BlenderOptim
 {
     template<typename T>
-    inline std::optional<T> solve_cubic(T c0, T c1, T c2, T c3)
+    inline T fast_cbrt(T x) noexcept
+    {
+        constexpr T one_third = T(1) / T(3);
+        return x == T(0) ? T(0) : std::copysign(T(1), x) * std::exp(std::log(std::fabs(x)) * one_third);
+    }
+    template<typename T>
+    inline T solve_cubic(T c0, T c1, T c2, T c3)
     {
         const T ZERO = -std::numeric_limits<T>::min();
         const T ONE = std::nextafterf(T(1), T(2));
@@ -228,14 +242,14 @@ namespace BlenderOptim
             T d = q * q + p * p * p;
             if (std::fabs(d) < std::numeric_limits<T>::epsilon())
             {
-                T t = std::cbrt(-q);
+                T t = fast_cbrt(-q);
                 roots[0] = T(2) * t - a;
                 roots[1] = -t - a;
             }
             else if (d > T(0))
             {
                 T t = std::sqrt(d);
-                roots[0] = std::cbrt(-q + t) + std::cbrt(-q - t) - a;
+                roots[0] = fast_cbrt(-q + t) + fast_cbrt(-q - t) - a;
             }
             else
             {
@@ -277,15 +291,15 @@ namespace BlenderOptim
             }
         }
         if (roots[0] >= ZERO && roots[0] <= ONE)
-            return std::make_optional(roots[0]);
+            return roots[0];
         if (roots[1] >= ZERO && roots[1] <= ONE)
-            return std::make_optional(roots[1]);
+            return roots[1];
         if (roots[2] >= ZERO && roots[2] <= ONE)
-            return std::make_optional(roots[2]);
-        return {};
+            return roots[2];
+        return std::numeric_limits<T>::quiet_NaN();
     }
     template<typename T>
-    inline std::optional<T> findzero(T x, T q0, T q1, T q2, T q3)
+    inline T findzero(T x, T q0, T q1, T q2, T q3)
     {
         const T c0 = q0 - x;
         const T c1 = T(3) * (q1 - q0);
@@ -305,8 +319,9 @@ namespace BlenderOptim
     template<typename T>
     inline T fcurve_eval_keyframes_interpolate(std::array<T, 4> P_X, std::array<T, 4> P_Y, T t)
     {
-        auto found = findzero(t, P_X[0], P_X[1], P_X[2], P_X[3]);
-        return found.has_value() ? berekeny(P_Y[0], P_Y[1], P_Y[2], P_Y[3], found.value()) : T(0);
+        auto PX_01 = rebasePointsTo01(P_X);
+        auto found = findzero(t, PX_01[0], PX_01[1], PX_01[2], PX_01[3]);
+        return berekeny(P_Y[0], P_Y[1], P_Y[2], P_Y[3], found);
     }
 }
 
@@ -341,16 +356,14 @@ namespace BlenderNumeric
     }
 
     template<typename T>
-    T findRootNewtonRaphson(T a, T b, T c, T d, T x, int maxIter = 100)
+    T findRootNewtonRaphson(T a, T b, T c, T d, T x, int maxIter = 1000)
     {
-        while (maxIter-- > 0)
+        constexpr T EPSILON = std::numeric_limits<T>::epsilon();
+        T h = cubic_f(x, a, b, c, d) / cubic_df(x, a, b, c);
+        while (std::fabs(h) >= EPSILON && maxIter-- > 0)
         {
-            const T fx = cubic_f(x, a, b, c, d);
-            const T fpx = cubic_df(x, a, b, c);
-            const T x_new = x - fx / fpx;
-            if (std::abs(x_new - x) < std::numeric_limits<T>::epsilon())
-                return x_new;
-            x = x_new;
+            h = cubic_f(x, a, b, c, d) / cubic_df(x, a, b, c);
+            x = x - h;
         }
         return x;
     }
@@ -423,10 +436,10 @@ namespace BlenderNumeric
             std::swap(l, r);
             std::swap(f_l, f_r);
         }
-        double new_l = l;
-        double f_c = f_l;
-        double s = r;
-        double new_r = r;
+        T new_l = l;
+        T f_c = f_l;
+        T s = r;
+        T new_r = r;
         bool mflag = true;
         for (int iter = 0; iter < maxIter; ++iter)
         {
@@ -494,15 +507,17 @@ namespace BlenderNumeric
     template<typename T>
     inline T fcurve_eval_keyframes_interpolate1(std::array<T, 4> P_X, std::array<T, 4> P_Y, T t)
     {
-        const T q0 = P_X[0];
-        const T q1 = P_X[1];
-        const T q2 = P_X[2];
-        const T q3 = P_X[3];
+        auto PX_01 = rebasePointsTo01(P_X);
+        const T q0 = PX_01[0];
+        const T q1 = PX_01[1];
+        const T q2 = PX_01[2];
+        const T q3 = PX_01[3];
         const T c0 = q0 - t;
         const T c1 = T(3) * (q1 - q0);
         const T c2 = T(3) * (q0 - T(2) * q1 + q2);
         const T c3 = q3 - q0 + T(3) * (q1 - q2);
-        auto found = findRootNewtonRaphson(c3, c2, c1, c0, t);
+        //auto found = findRootNewtonRaphson(c3, c2, c1, c0, t);
+        auto found = findRootNewtonRaphson(c3, c2, c1, c0, T(0.5));
         //auto found = findRootHalley(c3, c2, c1, c0, t);
         //auto found = findRootLaguerre(c3, c2, c1, c0, t);
         //auto found = findRootBisection(c3, c2, c1, c0, t);
@@ -512,15 +527,20 @@ namespace BlenderNumeric
     template<typename T>
     inline T fcurve_eval_keyframes_interpolate2(std::array<T, 4> P_X, std::array<T, 4> P_Y, T t)
     {
-        const T q0 = P_X[0];
-        const T q1 = P_X[1];
-        const T q2 = P_X[2];
-        const T q3 = P_X[3];
+        auto PX_01 = rebasePointsTo01(P_X);
+        const T q0 = PX_01[0];
+        const T q1 = PX_01[1];
+        const T q2 = PX_01[2];
+        const T q3 = PX_01[3];
         const T c0 = q0 - t;
         const T c1 = T(3) * (q1 - q0);
         const T c2 = T(3) * (q0 - T(2) * q1 + q2);
         const T c3 = q3 - q0 + T(3) * (q1 - q2);
-        auto found = findRootHalley(c3, c2, c1, c0, t);
+        auto found = findRootNewtonRaphson(c3, c2, c1, c0, t);
+        //auto found = findRootHalley(c3, c2, c1, c0, t);
+        //auto found = findRootLaguerre(c3, c2, c1, c0, t);
+        //auto found = findRootBisection(c3, c2, c1, c0, t);
+        //auto found = findRootBrents(c3, c2, c1, c0, t);
         return berekeny(P_Y[0], P_Y[1], P_Y[2], P_Y[3], found);
     }
     template<typename T>
