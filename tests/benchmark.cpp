@@ -529,8 +529,8 @@ ARG
 constexpr int Iterations = 1'0'000;
 constexpr int kSteps = 1001;
 
-#define K T(12.0)
-#define W 12
+#define K T(15.0)
+#define W 15
 
 template<typename T>
 static void BM_Easing_Bezier_Cubic(benchmark::State& state)
@@ -541,6 +541,7 @@ static void BM_Easing_Bezier_Cubic(benchmark::State& state)
     std::array<T, 4> P_Y = { T(0.0), T(0.5), T(0.5), T(1.0) };
     std::array<T, 4> P_X = { T(0.0), T(n) / K, T(m) / K, T(1.0) };
     EasingCubicBezier<T> data(P_X, P_Y);
+//    std::cout << data.mL << "  " << data.mK << '\n';
     for (auto _ : state)
     {
         benchmark::DoNotOptimize(steps);

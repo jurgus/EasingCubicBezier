@@ -1,3 +1,27 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2025 £ukasz Izdebski
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #pragma once
 
 #include <cmath>
@@ -5,14 +29,6 @@
 #include <algorithm>
 #include <numbers>
 #include <limits>
-
-#if defined(_MSC_VER)
-#define FORCE_INLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-#define FORCE_INLINE inline __attribute__((always_inline))
-#else
-#define FORCE_INLINE inline
-#endif
 
 #if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
 #include <utility>
@@ -41,21 +57,13 @@ inline T fast_cbrt(T x) noexcept
 template<typename T>
 inline T fast_asinh(T x) noexcept
 {
-#if defined(_MSC_VER) && !defined(__AVX2__)
     return std::log(x + std::sqrt(x * x + T(1)));
-#else
-    return std::log(x + std::sqrt(std::fma(x, x, T(1))));
-#endif
 }
 
 template<typename T>
 inline T fast_acosh(T x) noexcept
 {
-#if defined(_MSC_VER) && !defined(__AVX2__)
     return std::log(x + std::sqrt(x * x - T(1)));
-#else
-    return std::log(x + std::sqrt(std::fma(x, x, -T(1))));
-#endif
 }
 
 //max error ~0.00005
@@ -69,11 +77,7 @@ inline T fast_acos(T x) noexcept
     const T sign = std::copysign(T(1), x);
     const T absX = x * sign;
     const T arg = std::sqrt(T(1) - absX);
-#if defined(_MSC_VER) && !defined(__AVX2__)
     return ((((A * absX + B) * absX + C) * absX + half_pi) * arg - half_pi) * sign + half_pi;
-#else
-    return std::fma(std::fma(std::fma(std::fma(std::fma(A, absX, B), absX, C), absX, half_pi), arg, -half_pi), sign, half_pi);
-#endif
 }
 
 template<typename T>
@@ -134,13 +138,9 @@ public:
 
     T evaluate(T x) const noexcept
     {
-        constexpr T one_third = T(1) / T(3);
-        constexpr T two_third_pi = -T(2) / T(3) * std::numbers::pi_v<T>;
-#if defined(_MSC_VER) && !defined(__AVX2__)
+        const T one_third = T(1) / T(3);
+        const T two_third_pi = T(-2) / T(3) * std::numbers::pi_v<T>;
         T phi = mL * x + mK;
-#else
-        T phi = std::fma(mL, x, mK);
-#endif
         switch (mType)
         {
         case TYPE::P3:
@@ -159,11 +159,7 @@ public:
 #ifdef FP_PRECISE
             phi = std::cos(std::acos(std::clamp(phi, T(-1), T(1))) / T(3) + two_third_pi);
 #else
-#if defined(_MSC_VER) && !defined(__AVX2__)
             phi = std::cos(fast_acos(std::clamp(phi, T(-1), T(1))) * one_third + two_third_pi);
-#else
-            phi = std::cos(std::fma(fast_acos(std::clamp(phi, T(-1), T(1))), one_third, two_third_pi));
-#endif
 #endif
             break;
         case TYPE::X3SINH:
@@ -186,11 +182,7 @@ public:
             UNREACHABLE();
             break;
         }
-#if defined(_MSC_VER) && !defined(__AVX2__)
         return ((mA * phi + mB) * phi + mC) * phi + mD;
-#else
-        return std::fma(std::fma(std::fma(mA, phi, mB), phi, mC), phi, mD);
-#endif
     }
 
     void makeEasingFromBezier(const std::array<T, 4>& P_X, const std::array<T, 4>& P_Y, T epsilon = DEFAULT_EPSILON) noexcept
