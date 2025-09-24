@@ -48,6 +48,16 @@ public:
         y = _y;
     }
 
+    const std::array<T, 4>& getX() const noexcept
+    {
+        return x;
+    }
+
+    const std::array<T, 4>& getY() const noexcept
+    {
+        return y;
+    }
+
     T getValX(T t) const noexcept
     {
         const T one = T(1) - t;

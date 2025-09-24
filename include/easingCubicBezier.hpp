@@ -66,13 +66,13 @@ inline T fast_acosh(T x) noexcept
     return std::log(x + std::sqrt(x * x - T(1)));
 }
 
-//max error ~0.00005
+//max error <0.000045 for double
 template<typename T>
 inline T fast_acos(T x) noexcept
 {
-    const T A = T(-0.0213937064144441);
-    const T B = T(+0.0775512555929659);
-    const T C = T(-0.2131465851945004);
+    const T A = T(-0.021641405);
+    const T B = T(+0.077981383);
+    const T C = T(-0.213301322);
     const T half_pi = std::numbers::pi_v<T> / T(2);
     const T sign = std::copysign(T(1), x);
     const T absX = x * sign;
